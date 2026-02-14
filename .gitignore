@@ -1,0 +1,21 @@
+# --- SEGURANÇA (CRÍTICO) ---
+.env
+.env.dev
+.env.prd
+pichau_state.json
+
+# --- AMBIENTE PYTHON ---
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+
+# --- DADOS E LOGS ---
+chrome_perfil/
+logs/
+*.log
+*.json
+
+# --- IDE ---
+.vscode/
+.idea/
