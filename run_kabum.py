@@ -1,51 +1,66 @@
 import sys
 import os
+import time
 from pathlib import Path
 
-# --- BOOTSTRAP: Adiciona ./src ao path para o Python achar o consulta_ecom ---
-ROOT_DIR = Path(__file__).resolve().parent
-SRC_DIR = ROOT_DIR / "src"
-if str(SRC_DIR) not in sys.path:
-    sys.path.insert(0, str(SRC_DIR))
+# --- CONFIGURAÇÃO DE INFRAESTRUTURA (Obrigatório vir antes dos imports locais) ---
+BASE_DIR = Path(__file__).resolve().parent
+SRC_PATH = str(BASE_DIR / "src")
 
-from consulta_ecom.config.env import load_environment
-from consulta_ecom.sites.kabum import KabumClient
+if SRC_PATH not in sys.path:
+    sys.path.insert(0, SRC_PATH)
+
+# --- IMPORTS DO PROJETO ---
+try:
+    from consulta_ecom.clients.base import ProductItem
+    from consulta_ecom.sites.kabum import KabumClient
+    from consulta_ecom.config.env import load_environment
+except ImportError as e:
+    print(f"❌ Erro técnico de importação: {e}")
+    sys.exit(1)
 
 def main():
-    # 1. Carrega Variáveis de Ambiente (.env)
-    env = load_environment()
-    print(f"⚡ [KABUM] Ambiente: {env.upper()}")
-
-    # 2. Configurações
+    load_environment()
     query = os.getenv("QUERY", "controle ps5")
-    limit = int(os.getenv("LIMIT", "10"))
-    max_pages = int(os.getenv("MAX_PAGES", "3"))
-    headless = os.getenv("HEADLESS", "true").lower() == "true"
     
-    # 3. Inicializa o Cliente Kabum
-    # NOTA: O KabumClient NÃO usa 'user_data_dir' nem 'stealth_enabled'
-    print(f"🔎 Iniciando busca na Kabum por: '{query}'")
+    # --- CONFIGURAÇÃO DO MODO FANTASMA ---
     client = KabumClient(
-        headless=headless,
-        verbose=True,      # Mostra logs detalhados no console
-        page_size=100      # Pega até 100 itens por página
+        headless=True,  # <--- MODO FANTASMA: O site NÃO vai aparecer
+        verbose=True
     )
 
-    # 4. Executa a Busca
-    try:
-        products = client.search(query=query, limit=limit, max_pages=max_pages)
-    except Exception as e:
-        print(f"❌ Erro durante a busca: {e}")
-        return
+    print(f"🚀 Iniciando varredura invisível (Headless) na Kabum...")
+    print(f"🔎 Alvo: '{query}' | Meta: 5 páginas")
+    print("-" * 70)
 
-    # 5. Exibe Resultados
-    print(f"\n✅ Encontrados: {len(products)}")
-    print("="*80)
-    for i, p in enumerate(products, 1):
-        price_fmt = f"R$ {p.price:.2f}" if p.price else "N/A"
-        # Mostra Título, Preço e Link
-        print(f"{i:02d}. [{price_fmt}] {p.title[:60]:<60} | {p.url}")
-    print("="*80)
+    start_time = time.time()
+    
+    try:
+        # Executa a busca (limit=500 para garantir que ele tente as 5 páginas)
+        products = client.search(query=query, limit=500, max_pages=5)
+        
+        duration = time.time() - start_time
+        
+        if products:
+            print("\n" + "=" * 110)
+            print(f"📊 RELATÓRIO FINAL: {len(products)} itens encontrados em {duration:.2f}s")
+            print("=" * 110)
+            print(f"{'PG':<3} | {'PREÇO (R$)':<12} | {'TÍTULO'}")
+            print("-" * 110)
+            
+            # Mostra uma amostra dos resultados
+            for p in products[:20]:
+                price_fmt = f"{p.price:10.2f}" if p.price else "   ---    "
+                print(f"{p.page:02d} | {price_fmt} | {p.title[:80]}")
+            
+            if len(products) > 20:
+                print(f"... e outros {len(products) - 20} itens.")
+            print("=" * 110)
+        else:
+            print("\n⚠️  Busca concluída, mas nenhum produto foi extraído.")
+
+    except Exception as e:
+        print(f"❌ Erro durante a execução: {e}")
 
 if __name__ == "__main__":
     main()

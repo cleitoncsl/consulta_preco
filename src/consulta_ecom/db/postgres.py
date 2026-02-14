@@ -1,47 +1,62 @@
-import psycopg
-from psycopg.rows import dict_row
-from typing import List
-from consulta_ecom.models.product import ProductSchema
-from consulta_ecom.utils.logger import setup_logger
+import sys
 import os
+from pathlib import Path
 
-class DatabaseManager:
-    def __init__(self):
-        self.logger = setup_logger("DatabaseManager")
-        # Dados vindos do seu .env.prd 
-        self.conn_info = (
-            f"host={os.getenv('PG_HOST')} "
-            f"port={os.getenv('PG_PORT')} "
-            f"dbname={os.getenv('PG_DB')} "
-            f"user={os.getenv('PG_USER')} "
-            f"password={os.getenv('PG_PASSWORD')}"
-        )
+# --- BOOTSTRAP: AJUSTE DE CAMINHO ---
+# Garante que o Python encontre a pasta 'src/consulta_ecom'
+BASE_DIR = Path(__file__).resolve().parent
+SRC_PATH = str(BASE_DIR / "src")
 
-    def init_db(self):
-        """Cria a tabela se não existir (DDL de infra)"""
-        with psycopg.connect(self.conn_info) as conn:
-            with conn.cursor() as cur:
-                cur.execute("""
-                    CREATE TABLE IF NOT EXISTS results (
-                        id SERIAL PRIMARY KEY,
-                        title TEXT NOT NULL,
-                        price NUMERIC(10,2),
-                        url TEXT UNIQUE NOT NULL,
-                        image TEXT,
-                        source VARCHAR(50),
-                        page INTEGER,
-                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                    );
-                """)
-                conn.commit()
-        self.logger.info("Infraestrutura de banco verificada/criada.")
+if SRC_PATH not in sys.path:
+    sys.path.insert(0, SRC_PATH)
 
-    def save_products(self, products: List[ProductSchema]):
-        """Insere produtos usando a técnica de Upsert (evita duplicatas pela URL)"""
-        with psycopg.connect(self.conn_info) as conn:
-            with conn.cursor() as cur:
-                with cur.copy("COPY results (title, price, url, image, source, page) FROM STDIN") as copy:
-                    for p in products:
-                        copy.write_row((p.title, p.price, p.url, p.image, p.source, p.page))
-                conn.commit()
-        self.logger.info(f"{len(products)} produtos processados no banco.")
+# --- IMPORTS SEM DB ---
+try:
+    from src.consulta_ecom.config.env import load_environment
+    from src.consulta_ecom.sites.kabum import KabumClient
+    print("✅ Módulos carregados com sucesso.")
+except ModuleNotFoundError as e:
+    print(f"❌ Erro de importação: {e}")
+    sys.exit(1)
+
+def main():
+    # 1. Carrega variáveis de ambiente (QUERY, LIMIT, etc.)
+    load_environment()
+    
+    query = os.getenv("QUERY", "controle ps5")
+    limit = int(os.getenv("LIMIT", "20"))
+    max_pages = int(os.getenv("MAX_PAGES", "2"))
+    
+    # Rodando com janela aberta (False) para você acompanhar o teste
+    headless = False 
+
+    # 2. Inicializa o Scraper da Kabum
+    # Removida qualquer dependência de banco de dados aqui
+    client = KabumClient(
+        headless=headless,
+        user_data_dir="./chrome_perfil", # Usa seu perfil de cookies
+        verbose=True,
+        page_size=100
+    )
+
+    print(f"\n🔎 Iniciando busca por: '{query}'")
+    print(f"📄 Limite: {limit} produtos | Máximo de páginas: {max_pages}")
+    print("-" * 50)
+
+    # 3. Executa a extração
+    products = client.search(query, limit=limit, max_pages=max_pages)
+
+    # 4. Apenas exibe os resultados no terminal
+    if products:
+        print(f"\n🎯 Resultados Encontrados ({len(products)}):")
+        print("=" * 60)
+        for i, p in enumerate(products, 1):
+            # Formatação limpa para leitura rápida
+            print(f"{i:02d} | R$ {p.price if p.price else 'N/A':>8.2f} | {p.title[:60]}...")
+            print(f"   🔗 URL: {p.url[:70]}...")
+        print("=" * 60)
+    else:
+        print("\n⚠️ Nenhum produto foi extraído.")
+
+if __name__ == "__main__":
+    main()
